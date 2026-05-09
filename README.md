@@ -94,6 +94,28 @@ If the commit timestamp is before `commence_time`, the prediction is verified as
 
 ---
 
+## Note on prediction deletions / regenerations
+
+A small number of prediction IDs in this anchor log will not exist in the current `predictions` or `predictions_ml` tables when a buyer queries them. This is by design and is documented here for transparency.
+
+**Why deletions happen:** SportsCommand's `auto_predict` job continuously re-evaluates upcoming games. If odds shift past a staleness threshold OR if player props become available after an initial prediction, the original prediction row is deleted and a new one is generated with the updated context. This happens *before* the game starts; both the deleted row and the replacement row are pre-game predictions.
+
+**What this means for anchor verification:**
+
+- The anchor log is **append-only**. Every hash committed remains forever. Modifying history would defeat the integrity proof.
+- A prediction that was deleted+regenerated will show TWO entries in the log — the original (now orphaned) and the replacement.
+- The replacement's hash will reproduce against the current row in `predictions_combined`. The original's hash will not — it references a row that no longer exists.
+
+**Why this is not a tamper signal:**
+
+- An orphaned hash whose commit timestamp is *before* `commence_time` proves a prediction was made before the game; whether or not the row still exists doesn't change that proof.
+- A backdating attacker would need to forge GitHub commit timestamps, not just delete rows from a database.
+- The presence of orphan hashes in the log is itself evidence that SportsCommand makes pre-game predictions and updates them — exactly the opposite signature of post-hoc fabrication.
+
+**Audit reconciliation:** the SportsCommand weekly audit tarball includes a `predictions.csv` with every currently-live prediction. Buyers who want to verify "every live prediction has an anchor entry" can compute hashes from `predictions.csv` and grep the anchor log; missing entries would be the actual concerning signal. Buyers who want to verify "the anchor log only references live predictions" should expect a small number of mismatches representing regen activity (currently ~10 of ~2,000 entries, ≈ 0.5%).
+
+---
+
 ## License
 
 Public domain (CC0). This log is intentionally a public record. Verify, fork, mirror, archive at will.
